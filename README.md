@@ -70,6 +70,5 @@ index.html          boot gate, import map, canvas, sequencer/GUI panel markup
   interaction.js     pointer/keyboard interaction handling
   presets.js         kit/preset definitions
   textures.js        procedural texture generation
-  ui.js              DOM overlay wiring (tooltips, diagnostics readout)
-/docs                DECISIONS.md (architecture log) and written report
+  ui.js              DOM overlay wiring
 ```
