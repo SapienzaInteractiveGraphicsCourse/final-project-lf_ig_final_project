@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Drum Rig — Interactive Graphics</title>
+<!--
+Define module for imports with aliases.
+  three -> three.js
+  three/addons -> official addons
+  @tweenjs/tween.js -> tween animation library
+  lil-gui -> lightweight ui control library 
+-->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./lib/three/build/three.module.js",
+    "three/addons/": "./lib/three/addons/",
+    "@tweenjs/tween.js": "./lib/tween/tween.esm.js",
+    "lil-gui": "./lib/lil-gui/lil-gui.esm.js"
+  }
+}
+</script>
+
+<style>
+  /*
+    The style should always reflect the one found in palette.js otherwise there will be a jump of style
+    which is not professional.
+    Two separate source of thruth 
+  */
+  :root {
+    /*
+    Base on my understanding should be a standard name conventions
+    -sky-top/bottom -> background gradient
+    -shell/deep -> panel surface
+    -ink -> text
+    -dim -> secondary text
+    -coral/deep -> accent, base/hover
+    -mono/sans -> fonts
+    */
+    --sky-top:    #2e3450;
+    --sky-bottom: #0f1220;
+
+    --shell:      #232839;
+    --shell-deep: #1a1e2c;
+    --ink:        #e8ebf5;
+    --dim:        #9aa3ba;
+    --coral:      #f47a58;
+    --coral-deep: #dc5f45;
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  /* without this any element with fixed width and padding will render wider that expected */
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--sky-bottom);
+    color: var(--ink);
+    font-family: var(--sans);
+    overflow: hidden;
+  }
+
+  #scene {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+  }
+
+  /*
+    Nedded to stop audio when mouse overlay is missing, 
+    The div stop registering clicks if the mouse
+    when this class is applied
+  */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bottom) 100%);
+    z-index: 10;
+    transition: opacity 420ms ease;
+  }
+  #overlay.is-hidden { opacity: 0; pointer-events: none; }
+
+  /*
+    Three shadow fake a sense of depth in flat CSS
+  */
+  .card {
+    width: min(430px, calc(100vw - 32px));
+    padding: 40px 36px 32px;
+    background: var(--shell);
+    border-radius: 28px;
+    text-align: center;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.10) inset,
+      0 24px 50px -14px rgba(0, 0, 0, 0.70),
+      0 2px 6px rgba(0, 0, 0, 0.35);
+  }
+
+  /*
+    Just five colored circle for style
+  */
+  .circles {
+    display: flex;
+    justify-content: center;
+    gap: 7px;
+    margin-bottom: 22px;
+  }
+  .circles i {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+  }
+  .circles i:nth-child(1) { background: hsl(7,   60%, 58%); }
+  .circles i:nth-child(2) { background: hsl(32,  60%, 58%); }
+  .circles i:nth-child(3) { background: hsl(50,  60%, 58%); }
+  .circles i:nth-child(4) { background: hsl(187, 60%, 58%); }
+  .circles i:nth-child(5) { background: hsl(270, 60%, 58%); }
+
+  .title {
+    margin: 0 0 8px;
+    font-size: 34px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+  }
+
+  .subtitle {
+    margin: 0 0 26px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--dim);
+  }
+
+  /* Start "pill" button + interactions */
+  #start {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #fff;
+    background: var(--coral);
+    border: none;
+    border-radius: 999px;
+    padding: 15px 38px;
+    cursor: pointer;
+    box-shadow: 0 6px 16px -4px rgba(220, 95, 69, 0.6);
+    transition: background 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  }
+  #start:hover, #start:focus-visible {
+    background: var(--coral-deep);
+    transform: translateY(-1px);
+    outline: none;
+  }
+  #start:active { transform: translateY(1px); }
+  #start:focus-visible { box-shadow: 0 0 0 4px rgba(244, 122, 88, 0.35); }
+
+  .caption {
+    margin: 22px 0 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--dim);
+  }
+
+  .legend {
+    margin: 18px 0 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--dim);
+    opacity: 0.75;
+  }
+
+  /*
+    The hover readout.
+
+    text that must be READ wants the browser's own type rasteriser with the
+    device resolution.
+
+    `pointer-events: none` so it can never eat a click
+  */
+  #hover {
+    position: fixed;
+    left: 0;
+    top: 0;
+    padding: 8px 12px;
+    background: rgba(16, 19, 32, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.8);
+    color: #e8ebf5;
+    font-size: 13px;
+    line-height: 1.35;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 14px));
+    transition: opacity 110ms ease;
+    z-index: 6;
+  }
+  #hover.is-visible { opacity: 1; }
+  #hover b { font-weight: 650; }
+  #hover span {
+    display: block;
+    font-size: 11.5px;
+    color: #9aa3ba;
+    letter-spacing: 0.01em;
+  }
+
+
+  /*
+    Define the sequencer below the page. useful to have better control over the beats
+  */
+  #seq {
+    position: fixed;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    width: min(1080px, calc(100vw - 24px));
+    background: rgba(16, 19, 32, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 14px;
+    box-shadow: 0 20px 50px -18px rgba(0, 0, 0, 0.85);
+    color: #e8ebf5;
+    font-size: 12px;
+    z-index: 7;
+    overflow: hidden;
+  }
+  /* Top bar of the sequencer */
+  .seq-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .seq-spacer { flex: 1; }
+
+  .seq-btn {
+    font: inherit;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .seq-btn:hover { background: rgba(255, 255, 255, 0.14); }
+  .seq-btn:disabled { opacity: 0.35; cursor: default; }
+  .seq-rec.is-active {
+    background: rgba(255, 95, 82, 0.24);
+    border-color: rgba(255, 95, 82, 0.62);
+    color: #ffb4ad;
+  }
+  .seq-collapse { padding: 6px 10px; }
+
+  .seq-state { color: #9aa3ba; min-width: 210px; }
+
+  /* Says which button does what, once, next to the control it applies to. */
+  .seq-hint {
+    color: #7f889f;
+    font-size: 11px;
+    opacity: 0.75;
+  }
+  @media (max-width: 900px) { .seq-hint { display: none; } }
+  .seq-state.is-play { color: #6ff0d8; }
+  .seq-state.is-rec { color: #ff8078; }
+  /*
+    The count-in blinks and do nothing else. It lasts one bar and then it is gone
+  */
+  .seq-state.is-countin { color: #ffb257; animation: seq-blink 0.5s steps(2) infinite; }
+  @keyframes seq-blink { 50% { opacity: 0.35; } }
+
+  .seq-field { color: #9aa3ba; display: flex; align-items: center; gap: 6px; }
+  .seq-field select {
+    font: inherit;
+    color: #e8ebf5;
+    background: #232a3c;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 7px;
+    padding: 5px 7px;
+  }
+  .seq-field select option { background: #232a3c; color: #e8ebf5; }
+  /* collapse mechanism */
+  .seq-grid {
+    padding: 8px 12px 12px;
+    max-height: 260px;
+    overflow: hidden auto;
+    transition: max-height 200ms ease, padding 200ms ease;
+  }
+  #seq:not(.is-open) .seq-grid { max-height: 0; padding-top: 0; padding-bottom: 0; }
+
+  .seq-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .seq-row.is-selected .seq-name { color: var(--ink); }
+
+  .seq-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 132px;
+    flex: none;
+    color: #9aa3ba;
+  }
+  .seq-head.is-muted { opacity: 0.45; }
+  .seq-name { width: 20px; font-weight: 650; }
+
+  /* Filled-layer indicator: the answer to "which layer has anything in it". */
+  .seq-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.16);
+    flex: none;
+  }
+  .seq-dot.is-filled { background: #6ff0d8; box-shadow: 0 0 6px rgba(111, 240, 216, 0.7); }
+
+  .seq-mini {
+    font: inherit;
+    font-size: 10px;
+    line-height: 1;
+    color: #9aa3ba;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 5px;
+    padding: 4px 5px;
+    cursor: pointer;
+  }
+  .seq-mini:hover { color: #e8ebf5; background: rgba(255, 255, 255, 0.13); }
+  .seq-arm.is-armed { color: #fff; background: #e2483c; border-color: #ff7b70; }
+  .seq-head.is-solo .seq-mini:nth-of-type(3) { color: #ffd08a; }
+
+  /*
+    The cells are a grid of equal fractions rather than fixed pixels, so a
+    64-step pattern fits the same width a 16-step one does. Cells get narrower
+    rather than the panel getting wider — a horizontally scrolling sequencer
+    hides the second half of the bar, which is exactly the half you are least
+    sure about.
+  */
+  .seq-cells {
+    display: grid;
+    grid-template-columns: repeat(var(--steps), 1fr);
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .seq-cell {
+    height: 22px;
+    padding: 0;
+    font: inherit;
+    font-size: 9px;
+    color: rgba(0, 0, 0, 0.7);
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid transparent;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .seq-cell.is-beat { background: rgba(255, 255, 255, 0.085); }
+  .seq-cell.is-bar  { background: rgba(255, 255, 255, 0.13); }
+  .seq-cell:hover { border-color: rgba(255, 255, 255, 0.42); }
+  .seq-cell.is-now { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.8); }
+
+  .seq-ruler { margin-bottom: 6px; height: 12px; }
+  .seq-tick {
+    height: 12px;
+    font-size: 9px;
+    line-height: 12px;
+    text-align: center;
+    color: #7f889f;
+    border-radius: 2px;
+  }
+  .seq-tick.is-beat { background: rgba(255, 255, 255, 0.06); }
+  .seq-tick.is-bar { background: rgba(255, 255, 255, 0.13); color: #e8ebf5; }
+
+  @media (max-width: 720px) {
+    .seq-head { width: 108px; }
+    .seq-state { min-width: 0; }
+  }
+
+
+  /*
+    The call to action.
+
+    Sits above the sequencer panel and centred, because it is the only thing on
+    screen worth reading at the moment it appears and the eye goes to the
+    middle. It disappears the instant the slab opens — a prompt that lingers
+    after its instruction has been followed is noise.
+  */
+  #prompt {
+    position: fixed;
+    left: 50%;
+    bottom: 330px;
+    transform: translate(-50%, 8px);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 22px;
+    background: rgba(16, 19, 32, 0.92);
+    border: 1px solid rgba(47, 58, 99, 0.14);
+    border-radius: 999px;
+    box-shadow: 0 14px 36px -12px rgba(47, 58, 99, 0.30);
+    color: #e8ebf5;
+    font-size: 14.5px;
+    font-weight: 550;
+    letter-spacing: 0.005em;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 260ms ease, transform 260ms ease;
+    z-index: 8;
+  }
+  #prompt.is-visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  #prompt kbd {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.13);
+    border: 1px solid rgba(255, 255, 255, 0.20);
+  }
+
+  /*
+    One slow pulse on the dot, and nothing else on this element animates. The
+    prompt has to be noticed without competing with a scene that is already
+    full of moving light(a pulsing dot is the smallest thing that reads as
+    "waiting for you").
+  */
+  #prompt i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--coral);
+    animation: prompt-pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes prompt-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.75); }
+  }
+
+  @media (max-width: 720px) {
+    #prompt { bottom: 300px; font-size: 13px; padding: 11px 16px; }
+  }
+
+  /* Diagnostics readout */
+  #status {
+    position: fixed;
+    left: 16px;
+    top: 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+    pointer-events: none;
+    white-space: pre;
+    z-index: 5;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #overlay, #start, #prompt { transition: none; }
+    #prompt i { animation: none; }
+  }
+
+  .lil-gui {
+    --background-color: #171a28;
+    --text-color: #dfe4f2;
+    --title-background-color: #10131f;
+    --title-text-color: #f2f4fb;
+    --widget-color: #2a3043;
+    --hover-color: #363d54;
+    --focus-color: #414a67;
+    --number-color: #ffb257;
+    --string-color: #6ff0d8;
+    --font-size: 11px;
+    --input-font-size: 11px;
+    --padding: 5px;
+    --spacing: 5px;
+    --widget-height: 20px;
+  }
+
+</style>
+</head>
+<body>
+
+  <canvas id="scene"></canvas>
+
+  <div id="overlay">
+    <div class="card">
+      <div class="circles"><i></i><i></i><i></i><i></i><i></i></div>
+      <h1 class="title">Drum Rig</h1>
+      <p class="subtitle">A 16-pad sequencer in a tri-fold slab.<br>Rob8 is on sticks.</p>
+      <button id="start" type="button">Power on</button>
+      <p class="caption">Audio starts on your first click — browsers keep it muted until then.</p>
+      <p class="legend">Interactive Graphics · Sapienza</p>
+    </div>
+  </div>
+
+  <div id="prompt">
+    <i></i>
+    <span>Crack open the slab &mdash; click it, or hit <kbd>O</kbd> &mdash; and start making noise</span>
+  </div>
+
+  <div id="hover"></div>
+  <div id="status"></div>
+
+  <!-- single point of attach of the js pipeline -->
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
