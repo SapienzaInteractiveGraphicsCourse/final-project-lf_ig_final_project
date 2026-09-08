@@ -3,9 +3,7 @@
 A 16-pad procedural drum machine and step sequencer with
 stage lighting reactive to the audio spectrum and a beat-synced robot mascot.
 
-**Live build:** https://franzinluca.github.io/Final_project_computer_graphics/
-
-(Live build offline)
+**Live build:** [https://franzinluca.github.io/Final_project_computer_graphics/](https://sapienzainteractivegraphicscourse.github.io/final-project-lf_ig_final_project/)
 
 Course: Interactive Graphics, Prof. Marco Schaerf — DIAG, Sapienza University of Rome.
 
